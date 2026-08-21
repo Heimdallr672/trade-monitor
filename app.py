@@ -1,113 +1,214 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 
-st.set_page_config(page_title="全球跨市場供應鏈決策系統", layout="wide")
+st.set_page_config(page_title="全球跨市場供應鏈與機構籌碼決策系統", layout="wide")
 
+# 1. 預設供應鏈資料庫 (支援台美全產業擴充)
 SUPPLY_CHAIN_DB = {
     "NVDA": [("2330.TW", "台積電 (晶圓代工)"), ("2317.TW", "鴻海 (伺服器組裝)"), 
-             ("3017.TW", "奇鋐 (水冷散熱)"), ("VRT", "Vertiv (電力與散熱)"), ("AVGO", "博通 (客製化ASIC)")],
-    "2330.TW": [("ASML", "艾司摩爾 (EUV設備)"), ("AMAT", "應用材料 (設備)"), 
+             ("3017.TW", "奇鋐 (水冷散熱)"), ("VRT", "Vertiv (電力散熱)"), ("AVGO", "博通 (客製化晶片)")],
+    "2330.TW": [("ASML", "艾司摩爾 (光刻設備)"), ("AMAT", "應用材料 (半導體設備)"), 
                 ("3680.TW", "家登 (光罩載具)"), ("3583.TW", "辛耘 (CoWoS設備)")],
-    "AAPL": [("2317.TW", "鴻海 (組裝代工)"), ("2330.TW", "台積電 (A/M晶片)"), 
-             ("3008.TW", "大立光 (光學鏡頭)"), ("QCOM", "高通 (通訊基頻)")],
-    "TSLA": [("2308.TW", "台達電 (電源系統)"), ("NVDA", "輝達 (自動駕駛晶片)"), 
-             ("PANW", "派拓網絡 (車聯網資安)")]
+    "AAPL": [("2317.TW", "鴻海 (組裝代工)"), ("2330.TW", "台積電 (核心晶片)"), 
+             ("3008.TW", "大立光 (光學鏡頭)"), ("QCOM", "高通 (基頻晶片)")],
+    "TSLA": [("2308.TW", "台達電 (電源模組)"), ("NVDA", "輝達 (智駕運算)"), 
+             ("PANW", "派拓網絡 (車聯網安全)")]
 }
 
-def calculate_advisor_signals(symbol):
+# 2. 獲取大盤與宏觀風險指標 (S&P500, 費半, 台股, VIX)
+@st.cache_data(ttl=600)
+def get_macro_market_context():
+    indexes = {"美股 S&P500": "^GSPC", "費城半導體": "^SOX", "台股加權": "^TWII", "VIX 恐慌指數": "^VIX"}
+    summary = {}
+    for name, sym in indexes.items():
+        try:
+            df = yf.Ticker(sym).history(period="5d")
+            if not df.empty:
+                cur = df['Close'].iloc[-1]
+                prev = df['Close'].iloc[-2]
+                pct = (cur - prev) / prev
+                summary[name] = {"price": cur, "change": pct}
+        except:
+            summary[name] = {"price": 0, "change": 0}
+    return summary
+
+# 3. 機構籌碼與多因子決策核心計算
+def analyze_stock_full(symbol):
     try:
         ticker = yf.Ticker(symbol)
         df = ticker.history(period="6mo")
-        if df.empty or len(df) < 60:
+        if df.empty or len(df) < 40:
             return None
         
         price = df['Close'].iloc[-1]
         ma20 = df['Close'].rolling(20).mean().iloc[-1]
         ma60 = df['Close'].rolling(60).mean().iloc[-1]
         
+        # 動能與 RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / loss
         rsi = (100 - (100 / (1 + rs))).iloc[-1]
-        
         mom5d = (price - df['Close'].iloc[-5]) / df['Close'].iloc[-5]
-        pe = ticker.info.get('trailingPE', 20.0) or 20.0
 
-        val_buy = (pe < 22) and (price >= ma60 * 0.98)
-        mom_buy = (price > ma20 > ma60) and (mom5d > 0.01) and (50 <= rsi <= 72)
-        swing_exit = (rsi > 78) or (price < ma20 and mom5d < -0.02)
+        # 籌碼指標：Chaikin Money Flow (CMF 20日機構資金流)
+        mf_multiplier = ((df['Close'] - df['Low']) - (df['High'] - df['Close'])) / (df['High'] - df['Low'] + 1e-9)
+        mf_volume = mf_multiplier * df['Volume']
+        cmf_20 = (mf_volume.rolling(20).sum() / (df['Volume'].rolling(20).sum() + 1e-9)).iloc[-1]
+        
+        # 5日成交量與大戶推力比
+        vol_5d_avg = df['Volume'].iloc[-5:].mean()
+        vol_20d_avg = df['Volume'].iloc[-20:].mean()
+        vol_ratio = vol_5d_avg / (vol_20d_avg + 1e-9)
 
-        if mom_buy and val_buy:
-            sig, target, sl, logic = "🔥 強烈買進 (價值+動能共振)", price * 1.15, ma20 * 0.97, "估值安全且均線多頭排列，風報比極佳。"
-        elif mom_buy:
-            sig, target, sl, logic = "🚀 趨勢買進 (動能型)", price * 1.10, ma20 * 0.98, "主升段動能強勁，嚴守月線停損。"
-        elif val_buy:
-            sig, target, sl, logic = "💎 價值分批建倉", price * 1.20, ma60 * 0.93, "歷史本益比低檔，季線支撐強勁。"
-        elif swing_exit:
-            sig, target, sl, logic = "⚠️ 減碼/停利出場", price, price * 0.98, "短線嚴重超買或跌破短均線，注意回檔風險。"
+        # 籌碼面評級
+        if cmf_20 > 0.10 and vol_ratio > 1.2:
+            chip_status = "🟢 法人大舉吸籌 (放量增持)"
+        elif cmf_20 > 0.0:
+            chip_status = "🟡 資金溫和流入"
+        elif cmf_20 < -0.10:
+            chip_status = "🔴 主力資金流出 (出貨警戒)"
         else:
-            sig, target, sl, logic = "⏳ 中性觀望", price * 1.05, price * 0.95, "量價整理中，等待突破或拉回關鍵支撐。"
+            chip_status = "⚪ 籌碼中性觀望"
+
+        # 資深顧問戰術決策 (共振模型)
+        is_bull = (price > ma20 > ma60) and (rsi > 50)
+        is_val = (price >= ma60 * 0.98) and (rsi < 65)
+
+        if is_bull and cmf_20 > 0.05:
+            action = "🔥 主升段進攻佈局 (趨勢+籌碼雙多)"
+            position_size = "70% ~ 80% 倉位 (積極)"
+            entry_tranche = f"第一筆：現價 ${round(price,2)} (40%)，第二筆拉回月線 ${round(ma20,2)} (40%)"
+            target = price * 1.15
+            stop_loss = ma20 * 0.97
+            advisor_logic = "均線呈現多頭排列，且 20 日機構資金流 (CMF) 呈現顯著淨流入，屬法人認養標的。"
+        elif is_val and cmf_20 >= 0:
+            action = "💎 價值左側分批佈局"
+            position_size = "40% ~ 50% 倉位 (穩健)"
+            entry_tranche = f"季線 ${round(ma60,2)} 附近分 3 筆逢低承接"
+            target = price * 1.20
+            stop_loss = ma60 * 0.93
+            advisor_logic = "股價處於季線關鍵防守位，法人並未顯著撤退，具備極佳風報比。"
+        elif rsi > 78 or cmf_20 < -0.10:
+            action = "⚠️ 風險警戒 / 減碼防禦"
+            position_size = "10% ~ 20% 防禦倉位或空手"
+            entry_tranche = "暫停新開倉，等待籌碼沉澱"
+            target = price
+            stop_loss = price * 0.98
+            advisor_logic = "短線指標過熱或主力資金出現顯著撤退背離跡象，應適時獲利了結。"
+        else:
+            action = "⏳ 區間震盪觀望"
+            position_size = "20% ~ 30% 試單倉位"
+            entry_tranche = "突破 20MA 或拉回 60MA 確認支撐後再行進場"
+            target = price * 1.05
+            stop_loss = price * 0.95
+            advisor_logic = "多空方向未明，主力維持洗盤震盪格局，建議多看少做。"
 
         return {
-            "代號": symbol, "現價": round(price, 2), "5日動能": f"{mom5d:+.2%}",
-            "RSI": round(rsi, 1), "20MA": round(ma20, 2), "60MA": round(ma60, 2),
-            "顧問評級": sig, "建議目標價": round(target, 2), "停損點位": round(sl, 2),
-            "佐證邏輯": logic, "歷史數據": df
+            "symbol": symbol, "price": price, "mom5d": mom5d, "rsi": rsi,
+            "ma20": ma20, "ma60": ma60, "cmf": cmf_20, "chip_status": chip_status,
+            "action": action, "position_size": position_size, "entry_tranche": entry_tranche,
+            "target": target, "stop_loss": stop_loss, "logic": advisor_logic, "df": df
         }
     except:
         return None
 
-st.title("🌐 全球跨市場供應鏈交易決策系統")
-st.caption("即時串接台美股 · 供應鏈穿透分析 · 價值/動能/波段三流派評估")
+# ======================= 前端 UI 介面 =======================
+st.title("🌐 全球跨市場供應鏈與機構籌碼決策系統")
+st.caption("【機構級交易視角】跨市場大盤宏觀 · 供應鏈聯動相關性 · 主力籌碼資金流 · 戰術資產配置")
 
-col1, col2 = st.columns([2, 1])
-with col1:
-    target = st.text_input("輸入核心標的代碼 (例: NVDA, 2330.TW, AAPL, TSLA):", value="NVDA").upper().strip()
-with col2:
-    refresh = st.button("🔄 一鍵即時分析", use_container_width=True)
+# 1. 頂部宏觀大盤看板
+st.subheader("📊 跨市場宏觀大盤與風險監控")
+macro_data = get_macro_market_context()
+cols = st.columns(4)
+for idx, (m_name, m_info) in enumerate(macro_data.items()):
+    val_str = f"{m_info['price']:,.2f}"
+    pct_str = f"{m_info['change']:+.2%}"
+    cols[idx].metric(m_name, val_str, pct_str)
 
-if target:
-    with st.spinner(f"正在穿透分析 {target} 及其關鍵供應鏈..."):
-        main_res = calculate_advisor_signals(target)
+vix_val = macro_data.get("VIX 恐慌指數", {}).get("price", 15)
+if vix_val > 25:
+    st.warning("⚠️ **宏觀風險警報**：VIX 恐慌指數突破 25，全球股市波動加劇，建議總體持倉降至 50% 以下！")
+
+st.markdown("---")
+
+# 2. 標的輸入與執行
+c1, c2 = st.columns([3, 1])
+with c1:
+    target_sym = st.text_input("輸入核心標的代碼 (台美股皆可，例: NVDA, 2330.TW, AAPL, 2317.TW):", value="NVDA").upper().strip()
+with c2:
+    st.write(" ")
+    st.write(" ")
+    btn = st.button("🚀 執行機構級深度分析", use_container_width=True)
+
+if target_sym:
+    with st.spinner(f"正在穿透分析 {target_sym} 籌碼、供應鏈與機構決策..."):
+        res = analyze_stock_full(target_sym)
         
-        if main_res:
-            st.subheader(f"📌 核心目標：{target} 分析結果")
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("現價", f"${main_res['現價']}")
-            m2.metric("5日動能", main_res['5日動能'])
-            m3.metric("RSI(14)", main_res['RSI'])
-            m4.metric("顧問評級", main_res['顧問評級'])
+        if res:
+            # 核心標的儀表板
+            st.subheader(f"🎯 核心標的：{target_sym} 深度診斷")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("當前現價", f"${res['price']:.2f}", f"{res['mom5d']:+.2%} (5日)")
+            k2.metric("RSI (14D)", f"{res['rsi']:.1f}")
+            k3.metric("機構資金流 (CMF)", f"{res['cmf']:+.3f}")
+            k4.metric("籌碼狀態", res['chip_status'].split()[1])
 
-            st.info(f"💡 **進出場策略與佐證邏輯**：{main_res['佐證邏輯']} ｜ **目標價**：${main_res['建議目標價']} ｜ **防守停損**：${main_res['停損點位']}")
+            # 顧問決策戰術框
+            with st.container():
+                st.success(f"### 📋 資深投資顧問戰術建議：{res['action']}")
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.markdown(f"**💼 建議佈局倉位**：`{res['position_size']}`")
+                sc2.markdown(f"**🎯 階段目標價**：`${res['target']:.2f}` (+{((res['target']/res['price'])-1):.1%})")
+                sc3.markdown(f"**🛡️ 嚴格停損防守**：`${res['stop_loss']:.2f}` (-{(1-(res['stop_loss']/res['price'])):.1%})")
+                st.markdown(f"**🪜 分批建倉節奏**：{res['entry_tranche']}")
+                st.info(f"💡 **判斷邏輯與佐證**：{res['logic']}")
 
-            suppliers = SUPPLY_CHAIN_DB.get(target, [("SPY", "美股大盤連動"), ("0050.TW", "台股大盤連動")])
+            # 3. 供應鏈上下游聯動與籌碼清單
             st.markdown("---")
-            st.subheader(f"🔗 {target} 關鍵供應鏈上下游聯動監控")
+            st.subheader(f"🔗 {target_sym} 關鍵供應鏈上下游聯動與籌碼監控")
             
-            chain_data = []
+            suppliers = SUPPLY_CHAIN_DB.get(target_sym, [("SPY", "美股大盤連動"), ("0050.TW", "台股權值連動")])
+            chain_list = []
+            price_series_dict = {target_sym: res['df']['Close']}
+            
             for s_sym, role in suppliers:
-                s_res = calculate_advisor_signals(s_sym)
-                if s_res:
-                    s_res["供應鏈角色"] = role
-                    chain_data.append(s_res)
-            
-            if chain_data:
-                chain_df = pd.DataFrame(chain_data)
-                cols_to_show = ["代號", "供應鏈角色", "現價", "5日動能", "RSI", "顧問評級", "建議目標價", "停損點位", "佐證邏輯"]
-                st.dataframe(chain_df[cols_to_show], use_container_width=True)
+                s_data = analyze_stock_full(s_sym)
+                if s_data:
+                    chain_list.append({
+                        "代號": s_sym, "供應鏈角色/產業地位": role,
+                        "現價": round(s_data['price'], 2), "5日動能": f"{s_data['mom5d']:+.2%}",
+                        "RSI": round(s_data['rsi'], 1), "主力籌碼狀態": s_data['chip_status'],
+                        "顧問評級": s_data['action'].split()[1], "目標價": round(s_data['target'], 2),
+                        "停損價": round(s_data['stop_loss'], 2)
+                    })
+                    price_series_dict[s_sym] = s_data['df']['Close']
 
+            if chain_list:
+                st.dataframe(pd.DataFrame(chain_list), use_container_width=True)
+
+            # 4. 供應鏈價格 30 日聯動相關係數矩陣 (Correlation Heatmap)
             st.markdown("---")
-            st.subheader("📈 核心標的量價走勢與均線結構")
-            df_hist = main_res['歷史數據']
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(x=df_hist.index, open=df_hist['Open'], high=df_hist['High'],
-                                         low=df_hist['Low'], close=df_hist['Close'], name='K線'))
-            fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Close'].rolling(20).mean(), name='20MA (月線)', line=dict(color='orange', width=1.5)))
-            fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Close'].rolling(60).mean(), name='60MA (季線)', line=dict(color='blue', width=1.5)))
-            fig.update_layout(xaxis_rangeslider_visible=False, height=450, margin=dict(l=20, r=20, t=30, b=20))
-            st.plotly_chart(fig, use_container_width=True)
+            st.subheader("🔥 供應鏈 30 日報酬相關係數熱圖 (識別領先 vs 落後補漲)")
+            
+            # 計算報酬率相關係數
+            combined_df = pd.DataFrame(price_series_dict).dropna().tail(30)
+            returns_df = combined_df.pct_change().dropna()
+            corr_matrix = returns_df.corr().round(2)
+
+            fig_corr = px.imshow(
+                corr_matrix, text_auto=True, aspect="auto",
+                color_continuous_scale="RdYlGn", title="30日股價報酬相關性 (數值越接近 1 代表聯動性極高)"
+            )
+            fig_corr.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=20))
+            st.plotly_chart(fig_corr, use_container_width=True)
+            
+            st.caption("💡 **相關性應用法則**：若核心客戶（如 NVDA）已先行大漲，而相關係數高於 0.7 且籌碼偏多的供應鏈（如散熱/組裝）尚未發動，即為極佳之「落後補漲」勝率進場點。")
+
         else:
-            st.error("無法取得該標的數據，請確認代碼是否正確（台股請加 .TW，例: 2330.TW）。")
+            st.error("無法取得該標的數據，請確認代碼（台股請加 .TW，例: 2330.TW）。")
