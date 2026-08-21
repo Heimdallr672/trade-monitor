@@ -5,6 +5,9 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
+import urllib.request
+import urllib.parse
+import xml.etree.ElementTree as ET
 
 st.set_page_config(page_title="全球跨市場供應鏈與交易模擬診斷系統 (旗艦版)", layout="wide")
 
@@ -13,128 +16,98 @@ st.set_page_config(page_title="全球跨市場供應鏈與交易模擬診斷系�
 # ==========================================
 SUPPLY_CHAIN_DB = {
     "NVDA": [
-        ("2330.TW", "台積電 (晶圓代工心臟)"), ("2317.TW", "鴻海 (AI伺服器組裝大王)"),
-        ("3017.TW", "奇鋐 (水冷散熱主力)"), ("3324.TW", "雙鴻 (水冷散熱專家)"),
-        ("6669.TW", "緯穎 (雲端機櫃大廠)"), ("2382.TW", "廣達 (伺服器代工巨頭)"),
-        ("VRT", "Vertiv (機房電力與冷卻)"), ("AVGO", "博通 (傳輸晶片與ASIC)"),
-        ("TSM", "台積電ADR (美股連動)"), ("SMCI", "美超微 (AI伺服器機櫃)"),
-        ("3583.TW", "辛耘 (CoWoS先進封裝濕製程)"), ("3131.TW", "弘塑 (CoWoS先進封裝設備)"),
-        ("3680.TW", "家登 (極紫外光光罩盒)"), ("6187.TW", "萬潤 (先進封裝點膠設備)"),
-        ("2308.TW", "台達電 (伺服器高階電源)"), ("3665.TW", "貿聯-KY (超高頻傳輸線束)"),
-        ("2454.TW", "聯發科 (車用與ASIC夥伴)"), ("MU", "美光 (HBM高頻寬記憶體)"),
-        ("ASML", "艾司摩爾 (EUV光刻機)"), ("DELL", "戴爾 (企業級AI伺服器)")
+        ("2330.TW", "台積電 (晶圓代工心臟)"),
+        ("2317.TW", "鴻海 (AI伺服器組裝大王)"),
+        ("3017.TW", "奇鋐 (水冷散熱主力)"),
+        ("3324.TW", "雙鴻 (水冷散熱專家)"),
+        ("6669.TW", "緯穎 (雲端機櫃大廠)"),
+        ("2382.TW", "廣達 (伺服器代工巨頭)"),
+        ("VRT", "Vertiv (機房電力與冷卻)"),
+        ("AVGO", "博通 (傳輸晶片與ASIC)"),
+        ("TSM", "台積電ADR (美股連動)"),
+        ("SMCI", "美超微 (AI伺服器機櫃)"),
+        ("3583.TW", "辛耘 (CoWoS先進封裝濕製程)"),
+        ("3131.TW", "弘塑 (CoWoS先進封裝設備)"),
+        ("3680.TW", "家登 (極紫外光光罩盒)"),
+        ("6187.TW", "萬潤 (先進封裝點膠設備)"),
+        ("2308.TW", "台達電 (伺服器高階電源)"),
+        ("3665.TW", "貿聯-KY (超高頻傳輸線束)"),
+        ("2454.TW", "聯發科 (車用與ASIC夥伴)"),
+        ("MU", "美光 (HBM高頻寬記憶體)"),
+        ("ASML", "艾司摩爾 (EUV光刻機)"),
+        ("DELL", "戴爾 (企業級AI伺服器)")
     ],
     "2330.TW": [
-        ("ASML", "艾司摩爾 (光刻機核心)"), ("AMAT", "應用材料 (薄膜蝕刻設備)"),
-        ("LRCX", "科林研發 (半導體蝕刻設備)"), ("KLAC", "科磊 (晶圓製程檢測)"),
-        ("3680.TW", "家登 (光罩載具龍頭)"), ("3583.TW", "辛耘 (CoWoS先進封裝)"),
-        ("3131.TW", "弘塑 (先進封裝濕製程)"), ("6187.TW", "萬潤 (先進封裝點膠)"),
-        ("2454.TW", "聯發科 (主力旗艦客戶)"), ("AAPL", "蘋果 (主力旗艦客戶)"),
-        ("NVDA", "輝達 (AI晶片主力客戶)"), ("QCOM", "高通 (通訊晶片客戶)"),
-        ("AMD", "超微 (高效能運算客戶)"), ("INTC", "英特爾 (晶圓外包客戶)"),
-        ("2317.TW", "鴻海 (下游系統整合)"), ("2308.TW", "台達電 (綠能電源系統)"),
-        ("3037.TW", "欣興 (ABF載板龍頭)"), ("8069.TW", "元太 (電子紙生態夥伴)"),
-        ("2408.TW", "南亞科 (記憶體生態系)"), ("6770.TW", "力積電 (成熟製程夥伴)")
+        ("ASML", "艾司摩爾 (光刻機核心)"),
+        ("AMAT", "應用材料 (薄膜蝕刻設備)"),
+        ("LRCX", "科林研發 (半導體蝕刻設備)"),
+        ("KLAC", "科磊 (晶圓製程檢測)"),
+        ("3680.TW", "家登 (光罩載具龍頭)"),
+        ("3583.TW", "辛耘 (CoWoS先進封裝)"),
+        ("3131.TW", "弘塑 (先進封裝濕製程)"),
+        ("6187.TW", "萬潤 (先進封裝點膠)"),
+        ("2454.TW", "聯發科 (主力旗艦客戶)"),
+        ("AAPL", "蘋果 (主力旗艦客戶)"),
+        ("NVDA", "輝達 (AI晶片主力客戶)"),
+        ("QCOM", "高通 (通訊晶片客戶)"),
+        ("AMD", "超微 (高效能運算客戶)"),
+        ("INTC", "英特爾 (晶圓外包客戶)"),
+        ("2317.TW", "鴻海 (下游系統整合)"),
+        ("2308.TW", "台達電 (綠能電源系統)"),
+        ("3037.TW", "欣興 (ABF載板龍頭)"),
+        ("8069.TW", "元太 (電子紙生態夥伴)"),
+        ("2408.TW", "南亞科 (記憶體生態系)"),
+        ("6770.TW", "力積電 (成熟製程夥伴)")
     ],
     "AAPL": [
-        ("2317.TW", "鴻海 (iPhone組裝一哥)"), ("2330.TW", "台積電 (A/M系列核心晶片)"),
-        ("3008.TW", "大立光 (高階相機鏡頭)"), ("2382.TW", "廣達 (MacBook主要代工)"),
-        ("4938.TW", "和碩 (組裝代工二哥)"), ("2474.TW", "可成 (精密金屬機殼)"),
-        ("QCOM", "高通 (5G基頻連線晶片)"), ("AVGO", "博通 (射頻與Wi-Fi元件)"),
-        ("TXN", "德儀 (電源管理晶片)"), ("CRUS", "凌雲邏輯 (音訊處理晶片)"),
-        ("3406.TW", "玉晶光 (VR/手機鏡頭)"), ("2357.TW", "華碩 (周邊生態合作)"),
-        ("2308.TW", "台達電 (環保快充電源)"), ("SWKS", "思佳訊 (射頻前端模組)"),
-        ("QRVO", "威訊 (射頻放大晶片)"), ("STM", "意法半導體 (感測器)"),
-        ("6269.TW", "台郡 (軟板天線模組)"), ("4958.TW", "臻鼎-KY (高階PCB軟板)"),
-        ("2354.TW", "鴻準 (機殼與散熱組件)"), ("SONY", "索尼 (CIS影像感測器)")
+        ("2317.TW", "鴻海 (iPhone組裝一哥)"),
+        ("2330.TW", "台積電 (A/M系列核心晶片)"),
+        ("3008.TW", "大立光 (高階相機鏡頭)"),
+        ("2382.TW", "廣達 (MacBook主要代工)"),
+        ("4938.TW", "和碩 (組裝代工二哥)"),
+        ("2474.TW", "可成 (精密金屬機殼)"),
+        ("QCOM", "高通 (5G基頻連線晶片)"),
+        ("AVGO", "博通 (射頻與Wi-Fi元件)"),
+        ("TXN", "德儀 (電源管理晶片)"),
+        ("CRUS", "凌雲邏輯 (音訊處理晶片)"),
+        ("3406.TW", "玉晶光 (VR/手機鏡頭)"),
+        ("2357.TW", "華碩 (周邊生態合作)"),
+        ("2308.TW", "台達電 (環保快充電源)"),
+        ("SWKS", "思佳訊 (射頻前端模組)"),
+        ("QRVO", "威訊 (射頻放大晶片)"),
+        ("STM", "意法半導體 (感測器)"),
+        ("6269.TW", "台郡 (軟板天線模組)"),
+        ("4958.TW", "臻鼎-KY (高階PCB軟板)"),
+        ("2354.TW", "鴻準 (機殼與散熱組件)"),
+        ("SONY", "索尼 (CIS影像感測器)")
     ],
     "TSLA": [
-        ("2308.TW", "台達電 (動力電源與充電樁)"), ("NVDA", "輝達 (智駕AI訓練晶片)"),
-        ("1536.TW", "和大 (減速齒輪箱箱體)"), ("3665.TW", "貿聯-KY (車用超高壓線束)"),
-        ("2330.TW", "台積電 (FSD自駕晶片代工)"), ("2454.TW", "聯發科 (智慧座艙晶片)"),
-        ("PANW", "派拓網絡 (車聯網資訊安全)"), ("ALB", "雅寶 (車用鋰礦原料龍頭)"),
-        ("ON", "安森美 (SiC碳化矽功率元件)"), ("6278.TW", "台表科 (三電控制板打件)"),
-        ("3017.TW", "奇鋐 (車載電腦散熱)"), ("2317.TW", "鴻海 (車用電子模組)"),
-        ("LFUS", "力特 (車用高壓保險絲)"), ("TEL", "泰科電子 (車用連接器)"),
-        ("2492.TW", "華新科 (車用被動元件)"), ("2327.TW", "國巨 (車規電阻電容)"),
-        ("3008.TW", "大立光 (車載環景鏡頭)"), ("8046.TW", "南電 (車載晶片載板)"),
-        ("NXPI", "恩智浦 (車用MCU微控制器)"), ("MCHP", "微芯科技 (車載通訊晶片)")
-    ]
-}
-
-# 內建法人研報備援情報庫 (當 API 無新聞時無縫補充)
-FALLBACK_INTEL = {
-    "2330.TW": [
-        ("外資券商法人研報", "台積電 CoWoS 先進封裝產能預計擴增逾 100%，滿足輝達 Blackwell 強勁需求", "🟢 偏多推升", "⭐⭐⭐ 高 (主流外資法人研報)"),
-        ("彭博行業研究", "2奈米 (N2) 預計按進度於下半年試產，領先競爭對手維持毛利率 53% 以上高檔", "🟢 偏多推升", "⭐⭐⭐ 高 (權威財經外電)"),
-        ("證交所重訊與外電", "全球資本支出預估維持 300~320 億美元高檔水準，設備供應鏈訂單能見度直達明年", "🟢 偏多推升", "⭐⭐⭐ 高 (公司官方公告)")
-    ],
-    "NVDA": [
-        ("華爾街日報", "Blackwell 架構 AI 伺服器機櫃全面量產出貨，雲端大廠 (CSP) 資本支出持續上修", "🟢 偏多推升", "⭐⭐⭐ 高 (權威外電)"),
-        ("摩根士丹利研報", "企業級客製化 ASIC 與網路通訊 Spectrum-X 滲透率加速，維持頂級首選評級", "🟢 偏多推升", "⭐⭐⭐ 高 (機構研報)"),
-        ("路透社", "新世代晶片功耗挑戰推升水冷散熱普及率，台系散熱供應鏈全面受益", "🟢 偏多推升", "⭐⭐⭐ 高 (產業研報)")
+        ("2308.TW", "台達電 (動力電源與充電樁)"),
+        ("NVDA", "輝達 (智駕AI訓練晶片)"),
+        ("1536.TW", "和大 (減速齒輪箱箱體)"),
+        ("3665.TW", "貿聯-KY (車用超高壓線束)"),
+        ("2330.TW", "台積電 (FSD自駕晶片代工)"),
+        ("2454.TW", "聯發科 (智慧座艙晶片)"),
+        ("PANW", "派拓網絡 (車聯網資訊安全)"),
+        ("ALB", "雅寶 (車用鋰礦原料龍頭)"),
+        ("ON", "安森美 (SiC碳化矽功率元件)"),
+        ("6278.TW", "台表科 (三電控制板打件)"),
+        ("3017.TW", "奇鋐 (車載電腦散熱)"),
+        ("2317.TW", "鴻海 (車用電子模組)"),
+        ("LFUS", "力特 (車用高壓保險絲)"),
+        ("TEL", "泰科電子 (車用連接器)"),
+        ("2492.TW", "華新科 (車用被動元件)"),
+        ("2327.TW", "國巨 (車規電阻電容)"),
+        ("3008.TW", "大立光 (車載環景鏡頭)"),
+        ("8046.TW", "南電 (車載晶片載板)"),
+        ("NXPI", "恩智浦 (車用MCU微控制器)"),
+        ("MCHP", "微芯科技 (車載通訊晶片)")
     ]
 }
 
 # ==========================================
-# 2. 智慧新聞與情報解析模組 (徹底修復空白)
+# 2. 數據獲取與即時中文情報解析模組
 # ==========================================
-def parse_news_safely(news_raw):
-    parsed = []
-    if not news_raw:
-        return parsed
-    
-    for n in news_raw:
-        title = ""
-        publisher = ""
-        pub_time = datetime.now().strftime('%Y-%m-%d %H:%M')
-        
-        # 1. 舊版格式相容
-        if isinstance(n, dict):
-            title = n.get('title', '')
-            publisher = n.get('publisher', '')
-            t_sec = n.get('providerPublishTime')
-            if t_sec:
-                pub_time = datetime.fromtimestamp(t_sec).strftime('%Y-%m-%d %H:%M')
-            
-            # 2. 新版格式相容 (若包在 content 內)
-            if not title and 'content' in n:
-                c = n['content']
-                title = c.get('title', '')
-                if 'provider' in c and isinstance(c['provider'], dict):
-                    publisher = c['provider'].get('displayName', '')
-                if 'pubDate' in c:
-                    try:
-                        pub_time = pd.to_datetime(c['pubDate']).strftime('%Y-%m-%d %H:%M')
-                    except:
-                        pass
-        
-        # 過濾空標題
-        if title and len(title.strip()) > 5:
-            if not publisher:
-                publisher = "主流財經媒體"
-            
-            # 判斷多空影響
-            t_lower = title.lower()
-            if any(w in t_lower for w in ['surge', 'grow', 'jump', 'profit', 'high', 'buy', 'ai', 'deal', 'gain', 'beat', 'bull', 'upgrade']):
-                impact = "🟢 偏多推升"
-            elif any(w in t_lower for w in ['fall', 'drop', 'cut', 'down', 'delay', 'ban', 'risk', 'miss', 'bear', 'downgrade', 'lawsuit']):
-                impact = "🔴 偏空回檔"
-            else:
-                impact = "🟡 中性/產業資訊"
-
-            credibility = "⭐⭐⭐ 高 (主流權威外電)" if any(p in publisher for p in ['Bloomberg', 'Reuters', 'Wall Street', 'CNBC', 'Yahoo', 'Barron']) else "⭐⭐ 中 (專業財經外電)"
-            
-            parsed.append({
-                "發布日期": pub_time,
-                "情報來源": publisher,
-                "事件摘要標題": title,
-                "預估對股價影響": impact,
-                "真實性/可信度": credibility
-            })
-            
-    return parsed
-
 @st.cache_data(ttl=300)
 def fetch_stock_data(symbol):
     try:
@@ -144,37 +117,82 @@ def fetch_stock_data(symbol):
             return None, []
         df.index = pd.to_datetime(df.index).tz_localize(None)
         
-        # 獲取新聞並解析
-        try:
-            news_raw = ticker.news
-            parsed_news = parse_news_safely(news_raw)
-        except:
-            parsed_news = []
-        
-        # 若是台股且新聞為空，自動跨市場抓取對應美股代碼 (例: 2330.TW -> TSM)
-        if len(parsed_news) == 0 and symbol == "2330.TW":
-            try:
-                adr_news = yf.Ticker("TSM").news
-                parsed_news = parse_news_safely(adr_news)
-            except:
-                pass
-                
-        # 若依然為空，載入權威備援情報
-        if len(parsed_news) == 0:
-            fb = FALLBACK_INTEL.get(symbol, FALLBACK_INTEL.get("2330.TW"))
-            cur_d = datetime.now().strftime('%Y-%m-%d')
-            for src, t_str, imp, cred in fb:
-                parsed_news.append({
-                    "發布日期": cur_d,
-                    "情報來源": src,
-                    "事件摘要標題": t_str,
-                    "預估對股價影響": imp,
-                    "真實性/可信度": cred
-                })
-
-        return df, parsed_news
+        # 抓取即時中文財經 RSS 情報
+        news_list = fetch_chinese_news(symbol)
+        return df, news_list
     except Exception:
         return None, []
+
+def fetch_chinese_news(symbol):
+    news_items = []
+    # 根據股票代號設定中文搜尋關鍵字
+    keyword_map = {
+        "2330.TW": "台積電", "TSM": "台積電", "NVDA": "輝達", "AAPL": "蘋果",
+        "2317.TW": "鴻海", "3017.TW": "奇鋐", "3324.TW": "雙鴻", "2382.TW": "廣達",
+        "6669.TW": "緯穎", "2454.TW": "聯發科", "3583.TW": "辛耘", "3131.TW": "弘塑"
+    }
+    kw = keyword_map.get(symbol, symbol.replace(".TW", ""))
+    
+    try:
+        query = urllib.parse.quote(f"{kw} 股價 產業")
+        url = f"https://news.google.com/rss/search?q={query}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        response = urllib.request.urlopen(req, timeout=5)
+        xml_data = response.read()
+        
+        root = ET.fromstring(xml_data)
+        for item in root.findall('.//item')[:6]:
+            title = item.find('title').text if item.find('title') is not None else ""
+            pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
+            source = item.find('source').text if item.find('source') is not None else "主流財經外電"
+            
+            # 日期格式化
+            try:
+                dt = datetime.strptime(pub_date[:25], "%a, %d %b %Y %H:%M:%S")
+                date_str = dt.strftime('%Y-%m-%d %H:%M')
+            except:
+                date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+            # 智慧衝擊與白話文評估
+            impact, plain_explain = explain_news_plainly(title)
+            
+            # 真實度評估
+            if any(k in source for k in ['經濟日報', '工商時報', '中央社', '鉅亨網', 'Bloomberg', 'Reuters', 'Yahoo']):
+                credibility = "⭐⭐⭐ 高 (主流權威財經媒體)"
+            else:
+                credibility = "⭐⭐ 中 (一般網路財經專欄)"
+
+            news_items.append({
+                "發布日期": date_str,
+                "情報來源": source,
+                "事件摘要標題": title,
+                "預估對股價影響": impact,
+                "🗣️ 小學生白話解讀": plain_explain,
+                "真實性/可信度": credibility
+            })
+    except Exception:
+        pass
+    
+    return news_items
+
+def explain_news_plainly(title):
+    t = title.lower()
+    # 偏多關鍵字
+    if any(k in title for k in ['營收創高', '大增', '擴產', '買進', '漲停', '訂單爆發', 'CoWoS', 'AI需求', '獲利翻倍', '大單', '跳增', '優於預期']):
+        impact = "🟢 偏多推升 (利多)"
+        plain = "就像排隊名店生意好到爆棚、老闆要開分店，賺大錢的訊號！"
+    # 偏空關鍵字
+    elif any(k in title for k in ['砍單', '大跌', '重挫', '下修', '禁令', '延遲', '衰退', '外資倒貨', '賣超', '虧損', '不如預期']):
+        impact = "🔴 偏空回檔 (利空)"
+        plain = "就像大客戶突然說少買一點，短時間收入會縮水，小心別踩空！"
+    # 中性/法說
+    elif any(k in title for k in ['法說會', '財報', '合作', '投資', '展望', '公告', '除息', '目標價']):
+        impact = "🟡 中性觀察 (待確認)"
+        plain = "就像期末考發成績單，大家都在看考得好不好，等看清楚再上車。"
+    else:
+        impact = "🟡 產業常態 (中性)"
+        plain = "日常的產業動態與營運更新，對股價屬於正常波動範圍。"
+    return impact, plain
 
 def analyze_signals(symbol, df):
     price = df['Close'].iloc[-1]
@@ -233,11 +251,11 @@ tab1, tab2 = st.tabs(["🌐 全球產業鏈穿透與即時診斷", "📒 多標�
 # ----------------------------------------------------
 with tab1:
     st.title("🌐 全球跨市場 20 大供應鏈與交易決策系統")
-    st.caption("【機構級全景監控】20大供應鏈聯動 · 補漲機會智能篩選 · 最新重大產業情報 · 白話進出場點位")
+    st.caption("【機構級全景監控】20大供應鏈聯動 · 補漲機會智能篩選 · 即時中文產業重大情報 · 白話進出場點位")
 
     c1, c2 = st.columns([3, 1])
     with c1:
-        target_sym = st.text_input("輸入核心標的代碼 (台美股皆可，例: NVDA, 2330.TW, AAPL, TSLA):", value="2330.TW").upper().strip()
+        target_sym = st.text_input("輸入核心標的代碼 (台美股皆可，例: 2330.TW, NVDA, AAPL, TSLA):", value="2330.TW").upper().strip()
     with c2:
         st.write(" ")
         st.write(" ")
@@ -260,7 +278,7 @@ with tab1:
 
                 st.info(f"🗣️ **白話翻譯**：{res['plain_text']} ｜ 🎯 **目標獲利價**：`${res['target']:.2f}` (+12%) ｜ 🛡️ **安全氣囊防守價**：`${res['stop_loss']:.2f}`")
 
-                # 20 大供應鏈監控
+                # 20 大供應鏈監控清單
                 st.markdown("---")
                 st.subheader(f"🔗 {target_sym} 核心 20 大供應鏈生態系情報清單")
                 
@@ -318,7 +336,7 @@ with tab1:
                         if s_sym in corr_matrix.columns and s_sym in all_signals:
                             corr_val = corr_matrix.loc[target_sym, s_sym]
                             s_mom = all_signals[s_sym]['mom5d']
-                            if corr_val >= 0.55 and (parent_mom - s_mom) >= 0.02 and all_signals[s_sym]['up_prob'] >= 50:
+                            if corr_val >= 0.50 and (parent_mom - s_mom) >= 0.015 and all_signals[s_sym]['up_prob'] >= 50:
                                 catchup_list.append({
                                     "標的代號": s_sym,
                                     "產業地位": role,
@@ -334,15 +352,15 @@ with tab1:
                     else:
                         st.write("目前供應鏈各公司漲幅與母廠步調大致一致，暫無顯著落後的搭便車標的，建議依照各股理想價分批佈局。")
 
-                # 最新產業重大情報分析模組 (已全面升級)
+                # 最新產業重大情報分析模組 (已修復並新增白話解讀)
                 st.markdown("---")
                 st.subheader(f"📰 {target_sym} 及關鍵供應鏈最新重大產業情報與影響評估")
-                st.caption("即時掃描全球外電與法人研報，評估重大事件對股價的衝擊方向與真實性。")
+                st.caption("即時掃描全球外電與權威財經媒體，評估重大事件對股價的衝擊方向、真實性與白話生活化解讀。")
 
                 if main_news and len(main_news) > 0:
-                    st.dataframe(pd.DataFrame(main_news[:8]), use_container_width=True)
+                    st.dataframe(pd.DataFrame(main_news), use_container_width=True)
                 else:
-                    st.write("目前維持正常產業基本面運作。")
+                    st.write("目前產業面維持平穩，暫無突發重大新聞。")
 
             else:
                 st.error("無法取得該標的數據，請確認代碼（台股請加 .TW，例: 2330.TW）。")
